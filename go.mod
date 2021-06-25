@@ -2,7 +2,7 @@ module github.com/syncthing/syncthing
 
 require (
 	github.com/AudriusButkevicius/pfilter v0.0.0-20210511165305-e9aaf99ab213
-	github.com/AudriusButkevicius/recli v0.0.5
+	github.com/AudriusButkevicius/recli v0.0.6
 	github.com/alecthomas/kong v0.2.16
 	github.com/bkaradzic/go-lz4 v0.0.0-20160924222819-7224d8d8f27e
 	github.com/calmh/xdr v1.1.0
@@ -19,7 +19,7 @@ require (
 	github.com/gobwas/glob v0.2.3
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da
-	github.com/golang/protobuf v1.5.2 // indirect
+	github.com/golang/protobuf v1.5.2
 	github.com/greatroar/blobloom v0.7.0
 	github.com/hashicorp/golang-lru v0.5.4
 	github.com/jackpal/gateway v1.0.7
@@ -30,7 +30,6 @@ require (
 	github.com/lib/pq v1.10.1
 	github.com/lucas-clemente/quic-go v0.19.3
 	github.com/maruel/panicparse v1.6.1
-	github.com/mattn/go-isatty v0.0.12
 	github.com/maxbrunsfeld/counterfeiter/v6 v6.3.0
 	github.com/minio/sha256-simd v1.0.0
 	github.com/miscreant/miscreant.go v0.0.0-20200214223636-26d376326b75
@@ -53,7 +52,6 @@ require (
 	golang.org/x/text v0.3.6
 	golang.org/x/time v0.0.0-20210220033141-f8bda1e9f3ba
 	golang.org/x/tools v0.1.0
-	google.golang.org/protobuf v1.26.0
 )
 
 go 1.14
