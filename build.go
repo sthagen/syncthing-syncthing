@@ -143,7 +143,7 @@ var targets = map[string]target{
 			{src: "LICENSE", dst: "LICENSE.txt", perm: 0644},
 			{src: "AUTHORS", dst: "AUTHORS.txt", perm: 0644},
 		},
-		systemdService: "cmd/stdiscosrv/etc/linux-systemd/stdiscosrv.service",
+		systemdService: "stdiscosrv.service",
 		installationFiles: []archiveFile{
 			{src: "{{binary}}", dst: "deb/usr/bin/{{binary}}", perm: 0755},
 			{src: "cmd/stdiscosrv/README.md", dst: "deb/usr/share/doc/syncthing-discosrv/README.txt", perm: 0644},
@@ -171,7 +171,7 @@ var targets = map[string]target{
 			{src: "LICENSE", dst: "LICENSE.txt", perm: 0644},
 			{src: "AUTHORS", dst: "AUTHORS.txt", perm: 0644},
 		},
-		systemdService: "cmd/strelaysrv/etc/linux-systemd/strelaysrv.service",
+		systemdService: "strelaysrv.service",
 		installationFiles: []archiveFile{
 			{src: "{{binary}}", dst: "deb/usr/bin/{{binary}}", perm: 0755},
 			{src: "cmd/strelaysrv/README.md", dst: "deb/usr/share/doc/syncthing-relaysrv/README.txt", perm: 0644},
@@ -301,6 +301,9 @@ func runCommand(cmd string, target target) {
 
 	case "assets":
 		rebuildAssets()
+
+	case "update-deps":
+		updateDependencies()
 
 	case "proto":
 		proto()
@@ -733,7 +736,13 @@ func shouldBuildSyso(dir string) (string, error) {
 
 	sysoPath := filepath.Join(dir, "cmd", "syncthing", "resource.syso")
 
-	if _, err := runError("goversioninfo", "-o", sysoPath); err != nil {
+	// See https://github.com/josephspurrier/goversioninfo#command-line-flags
+	armOption := ""
+	if strings.Contains(goarch, "arm") {
+		armOption = "-arm=true"
+	}
+
+	if _, err := runError("goversioninfo", "-o", sysoPath, armOption); err != nil {
 		return "", errors.New("failed to create " + sysoPath + ": " + err.Error())
 	}
 
@@ -868,12 +877,20 @@ func shouldRebuildAssets(target, srcdir string) bool {
 	return assetsAreNewer
 }
 
+func updateDependencies() {
+	runPrint(goCmd, "get", "-u", "./cmd/...")
+	runPrint(goCmd, "mod", "tidy", "-go=1.16", "-compat=1.16")
+
+	// We might have updated the protobuf package and should regenerate to match.
+	proto()
+}
+
 func proto() {
 	pv := protobufVersion()
 	repo := "https://github.com/gogo/protobuf.git"
 	path := filepath.Join("repos", "protobuf")
 
-	runPrint(goCmd, "get", fmt.Sprintf("github.com/gogo/protobuf/protoc-gen-gogofast@%v", pv))
+	runPrint(goCmd, "install", fmt.Sprintf("github.com/gogo/protobuf/protoc-gen-gogofast@%v", pv))
 	os.MkdirAll("repos", 0755)
 
 	if _, err := os.Stat(path); err != nil {
