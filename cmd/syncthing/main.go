@@ -49,16 +49,13 @@ import (
 	"github.com/syncthing/syncthing/lib/protocol"
 	"github.com/syncthing/syncthing/lib/svcutil"
 	"github.com/syncthing/syncthing/lib/syncthing"
-	"github.com/syncthing/syncthing/lib/tlsutil"
 	"github.com/syncthing/syncthing/lib/upgrade"
 
 	"github.com/pkg/errors"
 )
 
 const (
-	tlsDefaultCommonName   = "syncthing"
-	deviceCertLifetimeDays = 20 * 365
-	sigTerm                = syscall.Signal(15)
+	sigTerm = syscall.Signal(15)
 )
 
 const (
@@ -76,9 +73,9 @@ above). The value 0 is used to disable all of the above. The default is to
 show time only (2).
 
 Logging always happens to the command line (stdout) and optionally to the
-file at the path specified by -logfile=path. In addition to an path, the special
+file at the path specified by --logfile=path. In addition to an path, the special
 values "default" and "-" may be used. The former logs to DATADIR/syncthing.log
-(see -data-dir), which is the default on Windows, and the latter only to stdout,
+(see --data), which is the default on Windows, and the latter only to stdout,
 no file, which is the default anywhere else.
 
 
@@ -442,7 +439,7 @@ func generate(generateDir string, noDefaultFolder bool) error {
 	if err == nil {
 		l.Warnln("Key exists; will not overwrite.")
 	} else {
-		cert, err = tlsutil.NewCertificate(certFile, keyFile, tlsDefaultCommonName, deviceCertLifetimeDays)
+		cert, err = syncthing.GenerateCertificate(certFile, keyFile)
 		if err != nil {
 			return errors.Wrap(err, "create certificate")
 		}

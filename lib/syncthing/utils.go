@@ -25,20 +25,16 @@ import (
 )
 
 func LoadOrGenerateCertificate(certFile, keyFile string) (tls.Certificate, error) {
-	cert, err := tls.LoadX509KeyPair(
-		locations.Get(locations.CertFile),
-		locations.Get(locations.KeyFile),
-	)
+	cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 	if err != nil {
-		l.Infof("Generating ECDSA key and certificate for %s...", tlsDefaultCommonName)
-		return tlsutil.NewCertificate(
-			locations.Get(locations.CertFile),
-			locations.Get(locations.KeyFile),
-			tlsDefaultCommonName,
-			deviceCertLifetimeDays,
-		)
+		return GenerateCertificate(certFile, keyFile)
 	}
 	return cert, nil
+}
+
+func GenerateCertificate(certFile, keyFile string) (tls.Certificate, error) {
+	l.Infof("Generating ECDSA key and certificate for %s...", tlsDefaultCommonName)
+	return tlsutil.NewCertificate(certFile, keyFile, tlsDefaultCommonName, deviceCertLifetimeDays)
 }
 
 func DefaultConfig(path string, myID protocol.DeviceID, evLogger events.Logger, noDefaultFolder bool) (config.Wrapper, error) {
@@ -90,7 +86,7 @@ func LoadConfigAtStartup(path string, cert tls.Certificate, evLogger events.Logg
 			l.Infof("Now, THAT's what we call a config from the future! Don't worry. As long as you hit that wire with the connecting hook at precisely eighty-eight miles per hour the instant the lightning strikes the tower... everything will be fine.")
 		}
 		if originalVersion > config.CurrentVersion && !allowNewerConfig {
-			return nil, fmt.Errorf("config file version (%d) is newer than supported version (%d). If this is expected, use -allow-newer-config to override.", originalVersion, config.CurrentVersion)
+			return nil, fmt.Errorf("config file version (%d) is newer than supported version (%d). If this is expected, use --allow-newer-config to override.", originalVersion, config.CurrentVersion)
 		}
 		err = archiveAndSaveConfig(cfg, originalVersion)
 		if err != nil {
