@@ -329,7 +329,7 @@ func (options serveOptions) Run() error {
 	}
 
 	if options.BrowserOnly {
-		if err := openGUI(protocol.EmptyDeviceID); err != nil {
+		if err := openGUI(); err != nil {
 			l.Warnln("Failed to open web UI:", err)
 			os.Exit(svcutil.ExitError.AsInt())
 		}
@@ -337,7 +337,7 @@ func (options serveOptions) Run() error {
 	}
 
 	if options.GenerateDir != "" {
-		if err := generate.Generate(options.GenerateDir, "", "", options.NoDefaultFolder); err != nil {
+		if err := generate.Generate(options.GenerateDir, "", "", options.NoDefaultFolder, options.SkipPortProbing); err != nil {
 			l.Warnln("Failed to generate config and keys:", err)
 			os.Exit(svcutil.ExitError.AsInt())
 		}
@@ -406,8 +406,8 @@ func (options serveOptions) Run() error {
 	return nil
 }
 
-func openGUI(myID protocol.DeviceID) error {
-	cfg, err := loadOrDefaultConfig(myID, events.NoopLogger)
+func openGUI() error {
+	cfg, err := loadOrDefaultConfig()
 	if err != nil {
 		return err
 	}
@@ -452,7 +452,7 @@ func (e *errNoUpgrade) Error() string {
 }
 
 func checkUpgrade() (upgrade.Release, error) {
-	cfg, err := loadOrDefaultConfig(protocol.EmptyDeviceID, events.NoopLogger)
+	cfg, err := loadOrDefaultConfig()
 	if err != nil {
 		return upgrade.Release{}, err
 	}
@@ -471,7 +471,7 @@ func checkUpgrade() (upgrade.Release, error) {
 }
 
 func upgradeViaRest() error {
-	cfg, err := loadOrDefaultConfig(protocol.EmptyDeviceID, events.NoopLogger)
+	cfg, err := loadOrDefaultConfig()
 	if err != nil {
 		return err
 	}
@@ -551,7 +551,7 @@ func syncthingMain(options serveOptions) {
 	evLogger := events.NewLogger()
 	earlyService.Add(evLogger)
 
-	cfgWrapper, err := syncthing.LoadConfigAtStartup(locations.Get(locations.ConfigFile), cert, evLogger, options.AllowNewerConfig, options.NoDefaultFolder)
+	cfgWrapper, err := syncthing.LoadConfigAtStartup(locations.Get(locations.ConfigFile), cert, evLogger, options.AllowNewerConfig, options.NoDefaultFolder, options.SkipPortProbing)
 	if err != nil {
 		l.Warnln("Failed to initialize config:", err)
 		os.Exit(svcutil.ExitError.AsInt())
@@ -711,12 +711,15 @@ func setupSignalHandling(app *syncthing.App) {
 	}()
 }
 
-func loadOrDefaultConfig(myID protocol.DeviceID, evLogger events.Logger) (config.Wrapper, error) {
+// loadOrDefaultConfig creates a temporary, minimal configuration wrapper if no file
+// exists.  As it disregards some command-line options, that should never be persisted.
+func loadOrDefaultConfig() (config.Wrapper, error) {
 	cfgFile := locations.Get(locations.ConfigFile)
-	cfg, _, err := config.Load(cfgFile, myID, evLogger)
+	cfg, _, err := config.Load(cfgFile, protocol.EmptyDeviceID, events.NoopLogger)
 
 	if err != nil {
-		cfg, err = syncthing.DefaultConfig(cfgFile, myID, evLogger, true)
+		newCfg := config.New(protocol.EmptyDeviceID)
+		return config.Wrap(cfgFile, newCfg, protocol.EmptyDeviceID, events.NoopLogger), nil
 	}
 
 	return cfg, err
