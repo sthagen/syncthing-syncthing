@@ -754,7 +754,7 @@ angular.module('syncthing.core')
         }
 
         function shouldSetDefaultFolderPath() {
-            return $scope.config.defaults.folder.path && $scope.folderEditor.folderPath.$pristine && $scope.currentFolder._editing == "add";
+            return $scope.config.defaults.folder.path && $scope.folderEditor.folderPath.$pristine && $scope.editingFolderNew();
         }
 
         function resetRemoteNeed() {
@@ -1614,6 +1614,11 @@ angular.module('syncthing.core')
             return $scope.currentDevice._editing == 'existing';
         }
 
+        $scope.editingDeviceNew = function() {
+            // The "new-pending" value is intentionally disregarded here.
+            return $scope.currentDevice._editing == 'new';
+        }
+
         $scope.editDeviceExisting = function (deviceCfg) {
             $scope.currentDevice = $.extend({}, deviceCfg);
             $scope.currentDevice._editing = "existing";
@@ -1683,7 +1688,11 @@ angular.module('syncthing.core')
                         $scope.currentDevice = p.data;
                         $scope.currentDevice.name = name;
                         $scope.currentDevice.deviceID = deviceID;
-                        $scope.currentDevice._editing = "add";
+                        if (deviceID) {
+                            $scope.currentDevice._editing = "new-pending";
+                        } else {
+                            $scope.currentDevice._editing = "new";
+                        }
                         initShareEditing('device');
                         $scope.currentSharing.unrelated = $scope.folderList();
                         editDeviceModal();
@@ -1968,7 +1977,7 @@ angular.module('syncthing.core')
             }).one('hidden.bs.modal', function () {
                 var p = $q.when();
                 // If the modal was closed default patterns should still apply
-                if ($scope.currentFolder._editing == "add-ignores" && !$scope.ignores.saved && $scope.ignores.defaultLines) {
+                if ($scope.currentFolder._editing == "new-ignores" && !$scope.ignores.saved && $scope.ignores.defaultLines) {
                     p = saveFolderAddIgnores($scope.currentFolder.id, true);
                 }
                 p.then(function () {
@@ -1988,10 +1997,11 @@ angular.module('syncthing.core')
             case "existing":
                 title = $translate.instant("Edit Folder");
                 break;
-            case "add":
+            case "new":
+            case "new-pending":
                 title = $translate.instant("Add Folder");
                 break;
-            case "add-ignores":
+            case "new-ignores":
                 title = $translate.instant("Set Ignores on Added Folder");
                 break;
             }
@@ -2014,6 +2024,10 @@ angular.module('syncthing.core')
 
         $scope.editingFolderExisting = function() {
             return $scope.currentFolder._editing == 'existing';
+        }
+
+        $scope.editingFolderNew = function() {
+            return $scope.has(['new', 'new-pending'], currentFolder._editing);
         }
 
         function editFolder(initialTab) {
@@ -2144,6 +2158,7 @@ angular.module('syncthing.core')
                 var folderID = (data.random.substr(0, 5) + '-' + data.random.substr(5, 5)).toLowerCase();
                 addFolderInit(folderID).then(function() {
                     // Triggers the watch that sets the path
+                    $scope.currentFolder._editing = "new";
                     $scope.currentFolder.label = $scope.currentFolder.label;
                     editFolderModal();
                 });
@@ -2161,6 +2176,7 @@ angular.module('syncthing.core')
                         break;
                     }
                 }
+                $scope.currentFolder._editing = "new-pending";
                 editFolderModal();
             });
         };
@@ -2168,7 +2184,6 @@ angular.module('syncthing.core')
         function addFolderInit(folderID) {
             return $http.get(urlbase + '/config/defaults/folder').then(function (response) {
                 $scope.currentFolder = response.data;
-                $scope.currentFolder._editing = "add";
                 $scope.currentFolder.id = folderID;
                 initShareEditing('folder');
                 $scope.currentSharing.unrelated = $scope.currentSharing.unrelated.concat($scope.currentSharing.shared);
@@ -2195,7 +2210,7 @@ angular.module('syncthing.core')
         };
 
         $scope.saveFolder = function () {
-            if ($scope.currentFolder._editing == "add-ignores") {
+            if ($scope.currentFolder._editing == "new-ignores") {
                 // On modal being hidden without clicking save, the defaults will be saved.
                 $scope.ignores.saved = true;
                 saveFolderAddIgnores($scope.currentFolder.id);
@@ -2284,7 +2299,7 @@ angular.module('syncthing.core')
             // load default ignores, then let the user edit them.
             $scope.saveConfig().then(function() {
                 editFolderLoadingIgnores();
-                $scope.currentFolder._editing = "add-ignores";
+                $scope.currentFolder._editing = "new-ignores";
                 $('.nav-tabs a[href="#folder-ignores"]').tab('show');
                 return editFolderGetIgnores();
             }).then(function(data) {
@@ -2520,6 +2535,11 @@ angular.module('syncthing.core')
                                 },
                                 table: {
                                     indentation: 24,
+                                },
+                                strings: {
+                                    loading: $translate.instant("Loading..."),
+                                    loadError: $translate.instant("Failed to load file versions."),
+                                    noData: $translate.instant("There are no file versions to restore.")
                                 },
                                 // Set to '1' to silence errors after pressing arrow keys on file nodes.
                                 // Happens on the official option cofiguration from the developer's site
