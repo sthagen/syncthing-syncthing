@@ -34,6 +34,9 @@ import (
 	"github.com/syncthing/syncthing/lib/watchaggregator"
 )
 
+// Arbitrary limit that triggers a warning on kqueue systems
+const kqueueItemCountThreshold = 10000
+
 type folder struct {
 	stateTracker
 	config.FolderConfiguration
@@ -81,6 +84,8 @@ type folder struct {
 
 	puller    puller
 	versioner versioner.Versioner
+
+	warnedKqueue bool
 }
 
 type syncRequest struct {
@@ -103,7 +108,7 @@ func newFolder(model *model, fset *db.FileSet, ignores *ignore.Matcher, cfg conf
 		shortID:       model.shortID,
 		fset:          fset,
 		ignores:       ignores,
-		mtimefs:       fset.MtimeFS(cfg.Filesystem()),
+		mtimefs:       cfg.Filesystem(fset),
 		modTimeWindow: cfg.ModTimeWindow(),
 		done:          make(chan struct{}),
 
@@ -980,10 +985,23 @@ func (f *folder) monitorWatch(ctx context.Context) {
 	warnedOutside := false
 	var lastWatch time.Time
 	pause := time.Minute
+	// Subscribe to folder summaries only on kqueue systems, to warn about potential high resource usage
+	var summarySub events.Subscription
+	var summaryChan <-chan events.Event
+	if fs.WatchKqueue && !f.warnedKqueue {
+		summarySub = f.evLogger.Subscribe(events.FolderCompletion)
+		summaryChan = summarySub.C()
+	}
+	defer func() {
+		aggrCancel() // aggrCancel might e re-assigned -> call within closure
+		if summaryChan != nil {
+			summarySub.Unsubscribe()
+		}
+	}()
 	for {
 		select {
 		case <-failTimer.C:
-			eventChan, errChan, err = f.Filesystem().Watch(".", f.ignores, ctx, f.IgnorePerms)
+			eventChan, errChan, err = f.mtimefs.Watch(".", f.ignores, ctx, f.IgnorePerms)
 			// We do this once per minute initially increased to
 			// max one hour in case of repeat failures.
 			f.scanOnWatchErr()
@@ -1024,6 +1042,15 @@ func (f *folder) monitorWatch(ctx context.Context) {
 			aggrCancel()
 			errChan = nil
 			aggrCtx, aggrCancel = context.WithCancel(ctx)
+		case ev := <-summaryChan:
+			if data, ok := ev.Data.(FolderSummaryEventData); !ok {
+				f.evLogger.Log(events.Failure, "Unexpected type of folder-summary event in folder.monitorWatch")
+			} else if data.Summary.LocalTotalItems > kqueueItemCountThreshold {
+				f.warnedKqueue = true
+				summarySub.Unsubscribe()
+				summaryChan = nil
+				l.Warnf("Filesystem watching (kqueue) is enabled on %v with a lot of files/directories, and that requires a lot of resources and might slow down your system significantly", f.Description())
+			}
 		case <-ctx.Done():
 			return
 		}
