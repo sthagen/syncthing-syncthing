@@ -2877,6 +2877,13 @@ angular.module('syncthing.core')
             });
         };
 
+        $scope.downloadProgressEnabled = function() {
+            return $scope.config.options &&
+                $scope.config.options.progressUpdateIntervalS > 0 &&
+                $scope.folders[$scope.neededFolder] &&
+                $scope.folders[$scope.neededFolder].type != 'receiveencrypted';
+        }
+
         $scope.showFailed = function (folder) {
             $scope.failed.folder = folder;
             $scope.failed = $scope.refreshFailed(1, 10);
@@ -3371,7 +3378,7 @@ angular.module('syncthing.core')
                 return '';
             }
 
-            // When the user explicitely added a wild-card, we don't show hints.
+            // When the user explicitly added a wild-card, we don't show hints.
             if (filterEntries.length === 1 && filterEntries[0].match === '*') {
                 return '';
             }
@@ -3406,7 +3413,7 @@ angular.module('syncthing.core')
         };
 
         $scope.validateXattrFilter = function () {
-            // Fitlering out empty rules when saving the config
+            // Filtering out empty rules when saving the config
             $scope.currentFolder.xattrFilter.entries = $scope.currentFolder.xattrFilter.entries.filter(function (n) {
                 return n.match !== "";
             });
