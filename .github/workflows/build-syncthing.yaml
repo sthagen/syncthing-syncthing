@@ -5,7 +5,9 @@ on:
   push:
 
 env:
-  # The go version to use for builds.
+  # The go version to use for builds. We set check-latest to true when
+  # installing, so we get the latest patch version that matches the
+  # expression.
   GO_VERSION: "^1.20.3"
 
   # Optimize compatibility on the slow archictures.
@@ -61,6 +63,7 @@ jobs:
         with:
           go-version: ${{ matrix.go }}
           cache: true
+          check-latest: true
 
       - name: Build
         run: |
@@ -83,6 +86,8 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
+          check-latest: true
 
       - name: Check correctness
         run: |
@@ -136,6 +141,8 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
+          check-latest: true
 
       - uses: actions/cache@v3
         with:
@@ -182,6 +189,8 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
+          check-latest: true
 
       - uses: actions/cache@v3
         with:
@@ -222,6 +231,8 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
+          check-latest: true
 
       - uses: actions/cache@v3
         with:
@@ -342,6 +353,8 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
+          check-latest: true
 
       - uses: actions/cache@v3
         with:
@@ -395,6 +408,8 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
+          check-latest: true
 
       - name: Package source
         run: |
@@ -505,6 +520,8 @@ jobs:
       - uses: actions/setup-go@v4
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: false
+          check-latest: true
 
       - uses: ruby/setup-ruby@v1
         with:
@@ -624,3 +641,72 @@ jobs:
           RCLONE_CONFIG_SPACES_ACL: public-read
         with:
           args: sync packages spaces:syncthing/release/${{ env.VERSION }}
+
+  docker-syncthing:
+    name: Build and push Docker images
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/release' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release-'))
+    environment: docker
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+          check-latest: true
+
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ env.GO_VERSION }}-docker-${{ hashFiles('**/go.sum') }}
+
+      - name: Build binaries
+        run: |
+          for arch in arm64 amd64; do
+            go run build.go -goos linux -goarch "$arch" build syncthing
+            mv syncthing syncthing-linux-"$arch"
+          done
+        env:
+          CGO_ENABLED: "0"
+          BUILD_USER: docker
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Set version tags
+        run: |
+          version=$(go run build.go version)
+          version=${version#v}
+          if [[ $version == @([0-9]|[0-9][0-9]).@([0-9]|[0-9][0-9]).@([0-9]|[0-9][0-9]) ]] ; then
+            echo Release version, pushing to :latest and version tags
+            major=${version%.*.*}
+            minor=${version%.*}
+            tags=syncthing/syncthing:$version,syncthing/syncthing:$major,syncthing/syncthing:$minor,syncthing/syncthing:latest
+          elif [[ $version == *-rc.@([0-9]|[0-9][0-9]) ]] ; then
+            echo Release candidate, pushing to :rc
+            tags=syncthing/syncthing:rc
+          else
+            echo Development version, pushing to :edge
+            tags=syncthing/syncthing:edge
+          fi
+          echo "DOCKER_TAGS=$tags" >> $GITHUB_ENV
+
+      - name: Build and push syncthing
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ env.DOCKER_TAGS }}
