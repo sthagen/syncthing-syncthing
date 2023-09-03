@@ -35,8 +35,8 @@ import (
 	"github.com/syncthing/syncthing/lib/protocol"
 	protocolmocks "github.com/syncthing/syncthing/lib/protocol/mocks"
 	srand "github.com/syncthing/syncthing/lib/rand"
-	"github.com/syncthing/syncthing/lib/testutils"
-	"github.com/syncthing/syncthing/lib/util"
+	"github.com/syncthing/syncthing/lib/semaphore"
+	"github.com/syncthing/syncthing/lib/testutil"
 	"github.com/syncthing/syncthing/lib/versioner"
 )
 
@@ -1241,7 +1241,7 @@ func TestAutoAcceptPausedWhenFolderConfigChanged(t *testing.T) {
 	if fcfg, ok := m.cfg.Folder(id); !ok || !fcfg.SharedWith(device1) {
 		t.Error("missing folder, or not shared", id)
 	}
-	if _, ok := m.folderRunners[id]; ok {
+	if _, ok := m.folderRunners.Get(id); ok {
 		t.Fatal("folder running?")
 	}
 
@@ -1261,7 +1261,7 @@ func TestAutoAcceptPausedWhenFolderConfigChanged(t *testing.T) {
 		t.Error("device missing")
 	}
 
-	if _, ok := m.folderRunners[id]; ok {
+	if _, ok := m.folderRunners.Get(id); ok {
 		t.Error("folder started")
 	}
 }
@@ -1290,7 +1290,7 @@ func TestAutoAcceptPausedWhenFolderConfigNotChanged(t *testing.T) {
 	if fcfg, ok := m.cfg.Folder(id); !ok || !fcfg.SharedWith(device1) {
 		t.Error("missing folder, or not shared", id)
 	}
-	if _, ok := m.folderRunners[id]; ok {
+	if _, ok := m.folderRunners.Get(id); ok {
 		t.Fatal("folder running?")
 	}
 
@@ -1310,7 +1310,7 @@ func TestAutoAcceptPausedWhenFolderConfigNotChanged(t *testing.T) {
 		t.Error("device missing")
 	}
 
-	if _, ok := m.folderRunners[id]; ok {
+	if _, ok := m.folderRunners.Get(id); ok {
 		t.Error("folder started")
 	}
 }
@@ -1337,8 +1337,9 @@ func TestAutoAcceptEnc(t *testing.T) {
 	// Earlier tests might cause the connection to get closed, thus ClusterConfig
 	// would panic.
 	clusterConfig := func(deviceID protocol.DeviceID, cm protocol.ClusterConfig) {
-		m.AddConnection(newFakeConnection(deviceID, m), protocol.Hello{})
-		m.ClusterConfig(&protocolmocks.Connection{DeviceIDStub: func() protocol.DeviceID { return deviceID }}, cm)
+		conn := newFakeConnection(deviceID, m)
+		m.AddConnection(conn, protocol.Hello{})
+		m.ClusterConfig(conn, cm)
 	}
 
 	clusterConfig(device1, basicCC())
@@ -2967,10 +2968,10 @@ func TestConnCloseOnRestart(t *testing.T) {
 	m := setupModel(t, w)
 	defer cleanupModelAndRemoveDir(m, fcfg.Filesystem(nil).URI())
 
-	br := &testutils.BlockingRW{}
-	nw := &testutils.NoopRW{}
+	br := &testutil.BlockingRW{}
+	nw := &testutil.NoopRW{}
 	ci := &protocolmocks.ConnectionInfo{}
-	m.AddConnection(protocol.NewConnection(device1, br, nw, testutils.NoopCloser{}, m, ci, protocol.CompressionNever, nil, m.keyGen), protocol.Hello{})
+	m.AddConnection(protocol.NewConnection(device1, br, nw, testutil.NoopCloser{}, m, ci, protocol.CompressionNever, nil, m.keyGen), protocol.Hello{})
 	m.pmut.RLock()
 	if len(m.closed) != 1 {
 		t.Fatalf("Expected just one conn (len(m.closed) == %v)", len(m.closed))
@@ -3112,9 +3113,9 @@ func TestDeviceWasSeen(t *testing.T) {
 }
 
 func TestNewLimitedRequestResponse(t *testing.T) {
-	l0 := util.NewSemaphore(0)
-	l1 := util.NewSemaphore(1024)
-	l2 := (*util.Semaphore)(nil)
+	l0 := semaphore.New(0)
+	l1 := semaphore.New(1024)
+	l2 := (*semaphore.Semaphore)(nil)
 
 	// Should take 500 bytes from any non-unlimited non-nil limiters.
 	res := newLimitedRequestResponse(500, l0, l1, l2)
