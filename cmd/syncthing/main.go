@@ -22,7 +22,6 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"runtime/pprof"
 	"sort"
 	"strconv"
@@ -33,6 +32,7 @@ import (
 	"github.com/alecthomas/kong"
 	"github.com/thejerf/suture/v4"
 	"github.com/willabides/kongplete"
+	_ "go.uber.org/automaxprocs"
 
 	"github.com/syncthing/syncthing/cmd/syncthing/cli"
 	"github.com/syncthing/syncthing/cmd/syncthing/cmdutil"
@@ -650,10 +650,6 @@ func syncthingMain(options serveOptions) {
 	}
 
 	setupSignalHandling(app)
-
-	if os.Getenv("GOMAXPROCS") == "" {
-		runtime.GOMAXPROCS(runtime.NumCPU())
-	}
 
 	if options.DebugProfileCPU {
 		f, err := os.Create(fmt.Sprintf("cpu-%d.pprof", os.Getpid()))
