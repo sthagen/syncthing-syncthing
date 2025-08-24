@@ -82,6 +82,10 @@ func Open(path string, opts ...Option) (*DB, error) {
 		opt(db)
 	}
 
+	if err := db.cleanDroppedFolders(); err != nil {
+		slog.Warn("Failed to clean dropped folders", slogutil.Error(err))
+	}
+
 	return db, nil
 }
 
@@ -120,25 +124,11 @@ func OpenForMigration(path string) (*DB, error) {
 		folderDBOpener: openFolderDBForMigration,
 	}
 
-	// // Touch device IDs that should always exist and have a low index
-	// // numbers, and will never change
-	// db.localDeviceIdx, _ = db.deviceIdxLocked(protocol.LocalDeviceID)
-	// db.tplInput["LocalDeviceIdx"] = db.localDeviceIdx
+	if err := db.cleanDroppedFolders(); err != nil {
+		slog.Warn("Failed to clean dropped folders", slogutil.Error(err))
+	}
 
 	return db, nil
-}
-
-func OpenTemp() (*DB, error) {
-	// SQLite has a memory mode, but it works differently with concurrency
-	// compared to what we need with the WAL mode. So, no memory databases
-	// for now.
-	dir, err := os.MkdirTemp("", "syncthing-db")
-	if err != nil {
-		return nil, wrap(err)
-	}
-	path := filepath.Join(dir, "db")
-	slog.Debug("Test DB", slogutil.FilePath(path))
-	return Open(path)
 }
 
 func (s *DB) Close() error {
