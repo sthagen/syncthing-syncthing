@@ -7,13 +7,12 @@
 package sqlite
 
 import (
-	"cmp"
 	"database/sql"
 	"embed"
 	"io/fs"
+	"log/slog"
 	"net/url"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -21,11 +20,12 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
+	"github.com/syncthing/syncthing/internal/slogutil"
 	"github.com/syncthing/syncthing/lib/build"
 	"github.com/syncthing/syncthing/lib/protocol"
 )
 
-const currentSchemaVersion = 3
+const currentSchemaVersion = 4
 
 //go:embed sql/**
 var embedded embed.FS
@@ -44,7 +44,6 @@ type baseDB struct {
 	tplInput      map[string]any
 }
 
-//nolint:noctx
 func openBase(path string, maxConns int, pragmas, schemaScripts, migrationScripts []string) (*baseDB, error) {
 	// Open the database with options to enable foreign keys and recursive
 	// triggers (needed for the delete+insert triggers on row replace).
@@ -84,45 +83,60 @@ func openBase(path string, maxConns int, pragmas, schemaScripts, migrationScript
 		},
 	}
 
+	tx, err := db.sql.Beginx()
+	if err != nil {
+		return nil, wrap(err)
+	}
+	defer tx.Rollback()
+
 	for _, script := range schemaScripts {
-		if err := db.runScripts(script); err != nil {
+		if err := db.runScripts(tx, script); err != nil {
 			return nil, wrap(err)
 		}
 	}
 
-	ver, _ := db.getAppliedSchemaVersion()
+	ver, _ := db.getAppliedSchemaVersion(tx)
+	shouldVacuum := false
 	if ver.SchemaVersion > 0 {
-		type migration struct {
-			script  string
-			version int
-		}
-		migrations := make([]migration, 0, len(migrationScripts))
-		for _, script := range migrationScripts {
-			base := filepath.Base(script)
-			nstr, _, ok := strings.Cut(base, "-")
+		filter := func(scr string) bool {
+			scr = filepath.Base(scr)
+			nstr, _, ok := strings.Cut(scr, "-")
 			if !ok {
-				continue
+				return false
 			}
 			n, err := strconv.ParseInt(nstr, 10, 32)
 			if err != nil {
-				continue
+				return false
 			}
-			migrations = append(migrations, migration{
-				script:  script,
-				version: int(n),
-			})
+			if int(n) > ver.SchemaVersion {
+				slog.Info("Applying database migration", slogutil.FilePath(db.baseName), slog.String("script", scr))
+				return true
+			}
+			return false
 		}
-		slices.SortFunc(migrations, func(m1, m2 migration) int { return cmp.Compare(m1.version, m2.version) })
-		for _, m := range migrations {
-			if err := db.applyMigration(m.version, m.script); err != nil {
+		for _, script := range migrationScripts {
+			if err := db.runScripts(tx, script, filter); err != nil {
 				return nil, wrap(err)
 			}
+			shouldVacuum = true
 		}
 	}
 
 	// Set the current schema version, if not already set
-	if err := setAppliedSchemaVersion(currentSchemaVersion, db.sql); err != nil {
+	if err := db.setAppliedSchemaVersion(tx, currentSchemaVersion); err != nil {
 		return nil, wrap(err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, wrap(err)
+	}
+
+	if shouldVacuum {
+		// We applied migrations and should take the opportunity to vaccuum
+		// the database.
+		if err := db.vacuumAndOptimize(); err != nil {
+			return nil, wrap(err)
+		}
 	}
 
 	return db, nil
@@ -200,6 +214,20 @@ func (s *baseDB) expandTemplateVars(tpl string) string {
 	return sb.String()
 }
 
+func (s *baseDB) vacuumAndOptimize() error {
+	stmts := []string{
+		"VACUUM;",
+		"PRAGMA optimize;",
+		"PRAGMA wal_checkpoint(truncate);",
+	}
+	for _, stmt := range stmts {
+		if _, err := s.sql.Exec(stmt); err != nil {
+			return wrap(err, stmt)
+		}
+	}
+	return nil
+}
+
 type stmt interface {
 	Exec(args ...any) (sql.Result, error)
 	Get(dest any, args ...any) error
@@ -216,18 +244,11 @@ func (f failedStmt) Get(_ any, _ ...any) error           { return f.err }
 func (f failedStmt) Queryx(_ ...any) (*sqlx.Rows, error) { return nil, f.err }
 func (f failedStmt) Select(_ any, _ ...any) error        { return f.err }
 
-//nolint:noctx
-func (s *baseDB) runScripts(glob string, filter ...func(s string) bool) error {
+func (s *baseDB) runScripts(tx *sqlx.Tx, glob string, filter ...func(s string) bool) error {
 	scripts, err := fs.Glob(embedded, glob)
 	if err != nil {
 		return wrap(err)
 	}
-
-	tx, err := s.sql.Begin()
-	if err != nil {
-		return wrap(err)
-	}
-	defer tx.Rollback() //nolint:errcheck
 
 nextScript:
 	for _, scr := range scripts {
@@ -236,48 +257,21 @@ nextScript:
 				continue nextScript
 			}
 		}
-		if err := s.execScript(tx, scr); err != nil {
-			return wrap(err)
+		bs, err := fs.ReadFile(embedded, scr)
+		if err != nil {
+			return wrap(err, scr)
+		}
+		// SQLite requires one statement per exec, so we split the init
+		// files on lines containing only a semicolon and execute them
+		// separately. We require it on a separate line because there are
+		// also statement-internal semicolons in the triggers.
+		for _, stmt := range strings.Split(string(bs), "\n;") {
+			if _, err := tx.Exec(s.expandTemplateVars(stmt)); err != nil {
+				return wrap(err, stmt)
+			}
 		}
 	}
 
-	return wrap(tx.Commit())
-}
-
-//nolint:noctx
-func (s *baseDB) applyMigration(ver int, script string) error {
-	tx, err := s.sql.Begin()
-	if err != nil {
-		return wrap(err)
-	}
-	defer tx.Rollback() //nolint:errcheck
-
-	if err := s.execScript(tx, script); err != nil {
-		return wrap(err)
-	}
-
-	if err := setAppliedSchemaVersion(ver, tx); err != nil {
-		return wrap(err)
-	}
-
-	return wrap(tx.Commit())
-}
-
-//nolint:noctx
-func (s *baseDB) execScript(tx *sql.Tx, scr string) error {
-	bs, err := fs.ReadFile(embedded, scr)
-	if err != nil {
-		return wrap(err, scr)
-	}
-	// SQLite requires one statement per exec, so we split the init
-	// files on lines containing only a semicolon and execute them
-	// separately. We require it on a separate line because there are
-	// also statement-internal semicolons in the triggers.
-	for _, stmt := range strings.Split(string(bs), "\n;") {
-		if _, err := tx.Exec(s.expandTemplateVars(stmt)); err != nil {
-			return wrap(err, stmt)
-		}
-	}
 	return nil
 }
 
@@ -291,20 +285,20 @@ func (s *schemaVersion) AppliedTime() time.Time {
 	return time.Unix(0, s.AppliedAt)
 }
 
-func setAppliedSchemaVersion(ver int, execer sqlx.Execer) error {
-	_, err := execer.Exec(`
+func (s *baseDB) setAppliedSchemaVersion(tx *sqlx.Tx, ver int) error {
+	_, err := tx.Exec(`
 		INSERT OR IGNORE INTO schemamigrations (schema_version, applied_at, syncthing_version)
 		VALUES (?, ?, ?)
 	`, ver, time.Now().UnixNano(), build.LongVersion)
 	return wrap(err)
 }
 
-func (s *baseDB) getAppliedSchemaVersion() (schemaVersion, error) {
+func (s *baseDB) getAppliedSchemaVersion(tx *sqlx.Tx) (schemaVersion, error) {
 	var v schemaVersion
-	err := s.stmt(`
+	err := tx.Get(&v, `
 		SELECT schema_version as schemaversion, applied_at as appliedat, syncthing_version as syncthingversion FROM schemamigrations
 		ORDER BY schema_version DESC
 		LIMIT 1
-	`).Get(&v)
+	`)
 	return v, wrap(err)
 }
