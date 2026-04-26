@@ -571,7 +571,7 @@ angular.module('syncthing.core')
             };
 
             // myID is watched as $scope.otherDevices() relies on this
-            // and it can potenitally not be loaded due to this function 
+            // and it can potenitally not be loaded due to this function
             // scope being called in an undetermistic manner
             $scope.$watch('myID', function(myID) {
                 if (myID) {
@@ -579,7 +579,7 @@ angular.module('syncthing.core')
                     const otherDevices = $scope.otherDevices();
                     for (var id in otherDevices) {
                         if ($scope.devicesGrouped[otherDevices[id].group] === undefined) {
-                            $scope.devicesGrouped[otherDevices[id].group] = []; 
+                            $scope.devicesGrouped[otherDevices[id].group] = [];
                         }
                         $scope.devicesGrouped[otherDevices[id].group].push(otherDevices[id]);
                     };
@@ -595,7 +595,7 @@ angular.module('syncthing.core')
                 $scope.folders[folder].devices.forEach(function (deviceCfg) {
                     refreshCompletion(deviceCfg.deviceID, folder);
                 });
-                
+
                 if ($scope.foldersGrouped[$scope.folders[folder].group] === undefined) {
                     $scope.foldersGrouped[$scope.folders[folder].group] = [];
                 }
@@ -612,7 +612,7 @@ angular.module('syncthing.core')
             }
         }
 
-        // Sort firstly by the top level key of the object and then by 
+        // Sort firstly by the top level key of the object and then by
         // prop name provided for the array of objects for each key.
         // If the prop returns has an empty value, then use the
         // fallback prop provided.
@@ -1122,7 +1122,7 @@ angular.module('syncthing.core')
             if (status == 'paused') {
                 return 'default';
             }
-            if (status === 'syncing' || status === 'sync-preparing' || status === 'scanning' || status === 'cleaning') {
+            if (status === 'syncing' || status === 'sync-preparing' || status === 'scanning' || status === 'cleaning' || status === 'starting') {
                 return 'primary';
             }
             if (status === 'unknown') {
@@ -1320,6 +1320,7 @@ angular.module('syncthing.core')
                 case 'scan-waiting':
                 case 'sync-preparing':
                 case 'sync-waiting':
+                case 'starting':
                     return 'fa-hourglass-half';
                 case 'cleaning':
                     return 'fa-recycle';
@@ -1355,6 +1356,8 @@ angular.module('syncthing.core')
                     return $translate.instant('Failed Items');
                 case 'idle':
                     return $translate.instant('Up to Date');
+                case 'starting':
+                    return $translate.instant('Starting');
                 case 'localadditions':
                     return $translate.instant('Local Additions');
                 case 'localunencrypted':
@@ -2333,6 +2336,12 @@ angular.module('syncthing.core')
                 delete $scope.currentFolder.versioning;
             } else {
                 $scope.currentFolder.fsWatcherEnabled = true;
+            }
+            var type = $scope.currentFolder.type;
+            if ($scope.currentFolder._editing !== 'existing') {
+                // Never automatically change block indexing, only suggest
+                // the value on new folder creation.
+                $scope.currentFolder.blockIndexing = (type === 'sendreceive' || type === 'receiveonly');
             }
             $scope.setFSWatcherIntervalDefault();
         };

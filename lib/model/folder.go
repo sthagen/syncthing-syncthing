@@ -153,11 +153,18 @@ func (f *folder) Serve(ctx context.Context) error {
 	f.sl.DebugContext(ctx, "Folder starting")
 	defer f.sl.DebugContext(ctx, "Folder exiting")
 
+	f.setState(FolderStarting)
+
 	defer func() {
 		f.scanTimer.Stop()
 		f.versionCleanupTimer.Stop()
 		f.setState(FolderIdle)
 	}()
+
+	if err := f.reconcileBlockIndex(ctx); err != nil {
+		f.setError(ctx, err)
+		return err // will get restarted by suture
+	}
 
 	if f.FSWatcherEnabled && f.getHealthErrorAndLoadIgnores() == nil {
 		f.startWatch(ctx)
@@ -174,6 +181,8 @@ func (f *folder) Serve(ctx context.Context) error {
 	initialCompleted := f.initialScanFinished
 	pullTimer := time.NewTimer(0)
 	pullTimer.Stop()
+
+	f.setState(FolderIdle)
 
 	for {
 		var err error
@@ -254,6 +263,15 @@ func (f *folder) Serve(ctx context.Context) error {
 			f.setError(ctx, err)
 		}
 	}
+}
+
+func (f *folder) reconcileBlockIndex(ctx context.Context) error {
+	if !f.BlockIndexing {
+		f.sl.DebugContext(ctx, "Dropping block index (block indexing disabled)")
+		return f.db.DropBlockIndex(f.folderID)
+	}
+	f.sl.DebugContext(ctx, "Populating block index if empty")
+	return f.db.PopulateBlockIndex(f.folderID)
 }
 
 func (*folder) BringToFront(string) {}
@@ -1273,7 +1291,11 @@ func (f *folder) updateLocalsFromPulling(fs []protocol.FileInfo) error {
 }
 
 func (f *folder) updateLocals(fs []protocol.FileInfo) error {
-	if err := f.db.Update(f.folderID, protocol.LocalDeviceID, fs); err != nil {
+	var opts []db.UpdateOption
+	if !f.BlockIndexing {
+		opts = append(opts, db.WithSkipBlockIndex())
+	}
+	if err := f.db.Update(f.folderID, protocol.LocalDeviceID, fs, opts...); err != nil {
 		return err
 	}
 

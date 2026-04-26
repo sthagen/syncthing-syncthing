@@ -910,9 +910,11 @@ jobs:
           if ! gh release view --json name "$VERSION" >/dev/null 2>&1 ; then
             gh release create "$VERSION" \
               $maybePrerelease \
+              --draft \
               --title "$VERSION" \
               --notes-from-tag
           fi
+
           gh release upload --clobber "$VERSION" \
             packages/*.asc packages/*.json \
             packages/syncthing-*.tar.gz \
@@ -933,6 +935,8 @@ jobs:
               $PKGS/*.asc \
               $PKGS/*${repo}*
           done
+
+          gh release edit "$VERSION" --draft=false
         env:
           GH_TOKEN: ${{ secrets.ACTIONS_GITHUB_TOKEN }}
 
