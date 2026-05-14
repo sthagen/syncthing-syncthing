@@ -21,7 +21,6 @@ jobs:
     name: Build and push Docker images
     if: github.repository_owner == 'syncthing'
     runs-on: ubuntu-latest
-    environment: docker
     strategy:
       matrix:
         pkg:
