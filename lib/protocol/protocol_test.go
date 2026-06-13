@@ -451,6 +451,61 @@ func TestCheckConsistency(t *testing.T) {
 			},
 			ok: false,
 		},
+		{
+			// directory with zero size
+			fi: FileInfo{
+				Name: "foo",
+				Type: FileInfoTypeDirectory,
+			},
+			ok: true,
+		},
+		{
+			// directory with synthetic size
+			fi: FileInfo{
+				Name: "foo",
+				Type: FileInfoTypeDirectory,
+				Size: SyntheticDirectorySize,
+			},
+			ok: true,
+		},
+		{
+			// directory with arbitrary size
+			fi: FileInfo{
+				Name: "foo",
+				Type: FileInfoTypeDirectory,
+				Size: 42,
+			},
+			ok: false,
+		},
+		{
+			// symlink with zero size
+			fi: FileInfo{
+				Name:          "foo",
+				Type:          FileInfoTypeSymlink,
+				SymlinkTarget: []byte("bar"),
+			},
+			ok: true,
+		},
+		{
+			// symlink with synthetic directory size (not permitted)
+			fi: FileInfo{
+				Name:          "foo",
+				Type:          FileInfoTypeSymlink,
+				SymlinkTarget: []byte("bar"),
+				Size:          SyntheticDirectorySize,
+			},
+			ok: false,
+		},
+		{
+			// symlink with arbitrary size
+			fi: FileInfo{
+				Name:          "foo",
+				Type:          FileInfoTypeSymlink,
+				SymlinkTarget: []byte("bar"),
+				Size:          42,
+			},
+			ok: false,
+		},
 	}
 
 	for _, tc := range cases {
@@ -560,6 +615,7 @@ func TestRequestMaxSize(t *testing.T) {
 				Id:   1,
 				Name: "valid",
 				Size: MaxRequestSize,
+				Hash: []byte{42},
 			}
 
 			res := <-c.outbox
@@ -573,6 +629,7 @@ func TestRequestMaxSize(t *testing.T) {
 				Id:   2,
 				Name: "invalid",
 				Size: int32(s),
+				Hash: []byte{42},
 			}
 
 			select {
@@ -606,6 +663,7 @@ func TestRequestZeroSize(t *testing.T) {
 		Id:   1,
 		Name: "valid",
 		Size: 0,
+		Hash: []byte{42},
 	}
 
 	select {
@@ -632,6 +690,7 @@ func TestRequestInvalidFilename(t *testing.T) {
 		Id:   1,
 		Name: "../escape",
 		Size: 1024,
+		Hash: []byte{42},
 	}
 
 	select {
