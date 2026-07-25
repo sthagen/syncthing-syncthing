@@ -1603,7 +1603,7 @@ func TestIgnores(t *testing.T) {
 		ID: "fresh", Path: "XXX",
 		FilesystemType: config.FilesystemTypeFake,
 	}
-	ignores := ignore.New(fcfg.Filesystem(), ignore.WithCache(m.cfg.Options().CacheIgnoredFiles))
+	ignores := ignore.New(fcfg.Filesystem())
 	m.mut.Lock()
 	m.folderCfgs[fcfg.ID] = fcfg
 	m.folderIgnores[fcfg.ID] = ignores
@@ -1618,7 +1618,7 @@ func TestIgnores(t *testing.T) {
 	pausedDefaultFolderConfig := defaultFolderConfig
 	pausedDefaultFolderConfig.Paused = true
 
-	m.restartFolder(defaultFolderConfig, pausedDefaultFolderConfig, false)
+	m.restartFolder(defaultFolderConfig, pausedDefaultFolderConfig)
 	// Here folder initialization is not an issue as a paused folder isn't
 	// added to the model and thus there is no initial scan happening.
 
@@ -2216,7 +2216,7 @@ func TestIndexesForUnknownDevicesDropped(t *testing.T) {
 		t.Error("expected two devices")
 	}
 
-	m.newFolder(defaultFolderConfig, false)
+	m.newFolder(defaultFolderConfig)
 	defer cleanupModel(m)
 
 	if devs, err := m.sdb.ListDevicesForFolder("default"); err != nil || len(devs) != 1 {
@@ -3270,17 +3270,20 @@ func TestRenameSequenceOrder(t *testing.T) {
 		t.Errorf("Unexpected count: %d != %d", count, numFiles)
 	}
 
-	// Modify all the files, other than the ones we expect to rename
+	// Modify all the files other than the rename sources, whose content we
+	// keep intact so the renamed copies still match by block hash.
 	for i := 0; i < numFiles; i++ {
-		if i == 3 || i == 17 || i == 16 || i == 4 {
+		if i == 3 || i == 16 {
 			continue
 		}
 		v := fmt.Sprintf("%d", i)
 		writeFile(t, ffs, v, []byte(v+"-new"))
 	}
-	// Rename
-	must(t, ffs.Rename("3", "17"))
-	must(t, ffs.Rename("16", "4"))
+	// Rename to previously unseen names. Renaming onto an existing name is
+	// treated as an in-place update rather than a rename, since rename
+	// detection only runs for files that are new on disk.
+	must(t, ffs.Rename("3", "20"))
+	must(t, ffs.Rename("16", "21"))
 
 	// Scan
 	m.ScanFolders()
@@ -3291,10 +3294,10 @@ func TestRenameSequenceOrder(t *testing.T) {
 	it, errFn := m.LocalFilesSequenced("default", protocol.LocalDeviceID, 0)
 	for i := range it {
 		t.Log(i)
-		if i.FileName() == "17" {
+		if i.FileName() == "20" {
 			firstExpectedSequence = i.SequenceNo() + 1
 		}
-		if i.FileName() == "4" {
+		if i.FileName() == "21" {
 			secondExpectedSequence = i.SequenceNo() + 1
 		}
 		if i.FileName() == "3" {

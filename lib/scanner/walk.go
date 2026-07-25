@@ -267,9 +267,22 @@ func (w *walker) scan(ctx context.Context, toHashChan chan<- protocol.FileInfo, 
 // isWarnableError returns true if err is a kind of error we should warn
 // about receiving from the folder walk.
 func isWarnableError(err error) bool {
-	return err != nil &&
-		!errors.Is(err, fs.SkipDir) && // intentional skip
-		!errors.Is(err, context.Canceled) // folder restarting
+	switch {
+	case err == nil:
+		return false
+	case errors.Is(err, fs.SkipDir):
+		// intentional skip
+		return false
+	case errors.Is(err, context.Canceled):
+		// folder restarting
+		return false
+	case fs.IsNotExist(err):
+		// sudden does-not-exist is fine for deleted files, deleted folder
+		// root triggers health check error instead
+		return false
+	default:
+		return true
+	}
 }
 
 func (w *walker) walkAndHashFiles(ctx context.Context, toHashChan chan<- protocol.FileInfo, finishedChan chan<- ScanResult) fs.WalkFunc {
@@ -458,6 +471,8 @@ func (w *walker) walkRegular(ctx context.Context, relPath string, info fs.FileIn
 	f.RawBlockSize = int32(blockSize)
 	l.Debugln(w, "checking:", f)
 
+	f.New = !hasCurFile
+
 	if hasCurFile {
 		if curFile.IsEquivalentOptional(f, protocol.FileInfoComparison{
 			ModTimeWindow:   w.ModTimeWindow,
@@ -504,6 +519,8 @@ func (w *walker) walkDir(ctx context.Context, relPath string, info fs.FileInfo, 
 	f = w.updateFileInfo(f, curFile)
 	f.NoPermissions = w.IgnorePerms
 	l.Debugln(w, "checking:", f)
+
+	f.New = !hasCurFile
 
 	if hasCurFile {
 		if curFile.IsEquivalentOptional(f, protocol.FileInfoComparison{
@@ -556,6 +573,8 @@ func (w *walker) walkSymlink(ctx context.Context, relPath string, info fs.FileIn
 	curFile, hasCurFile := w.CurrentFiler.CurrentFile(relPath)
 	f = w.updateFileInfo(f, curFile)
 	l.Debugln(w, "checking:", f)
+
+	f.New = !hasCurFile
 
 	if hasCurFile {
 		if curFile.IsEquivalentOptional(f, protocol.FileInfoComparison{
