@@ -275,7 +275,6 @@ loop:
 			continue
 		}
 		for _, igd := range igds {
-			igd := igd // Copy before sending pointer to the channel.
 			select {
 			case results <- &igd:
 			case <-ctx.Done():
@@ -554,7 +553,7 @@ func replaceRawPath(u *url.URL, rp string) {
 			q = fs[1]
 		}
 
-		if p[0] == '/' {
+		if p != "" && p[0] == '/' {
 			u.Path = p
 		} else {
 			u.Path += p
