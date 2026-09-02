@@ -206,6 +206,7 @@ func (s *apiSrv) handleGET(w http.ResponseWriter, req *http.Request) {
 	rec, err := s.db.get(&deviceID)
 	if err != nil {
 		// some sort of internal error
+		slog.Warn("Failed to handle GET request", "id", reqID, "error", err)
 		lookupRequestsTotal.WithLabelValues("internal_error").Inc()
 		w.Header().Set("Retry-After", errorRetryAfterString())
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -284,7 +285,7 @@ func (s *apiSrv) handlePOST(remoteAddr *net.TCPAddr, w http.ResponseWriter, req 
 	}
 
 	if err := s.handleAnnounce(deviceID, addresses); err != nil {
-		slog.Debug("Failed to handle request", "id", reqID, "error", err)
+		slog.Warn("Failed to handle POST request", "id", reqID, "error", err)
 		announceRequestsTotal.WithLabelValues("internal_error").Inc()
 		w.Header().Set("Retry-After", errorRetryAfterString())
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
